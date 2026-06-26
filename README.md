@@ -1,24 +1,28 @@
 # WhatsApp Reply Desk
 
-Bento-style WhatsApp reply dashboard.
+Updated features:
+- Search by sender or group.
+- Group chats by sender or group.
+- Remove duplicate messages.
+- Save uploaded/grouped chats to Firebase Firestore.
+- AI reply suggestions through Vercel `/api/suggest`; API key stays in Vercel as `OPENAI_API_KEY`.
+- Vertical scroll inside each sender/group card.
+- Vertical scroll in the left column.
+- Compact bento layout that fits a normal website screen.
+- Change category for any chat: Work, Family, Personal, No Reply Needed.
+- Shift/move sender/group bento boxes up or down.
+- Select and combine multiple chats into one combined chat.
+- Delete an entire sender/group chat.
 
-## Added in this version
-- Search box to search by sender or group name
-- Three-column bento layout for chat sections
-- Chats grouped by sender/group
-- Duplicate messages removed before display and saving
-- Vertical scroll inside each sender/group card
-- Delete entire sender/group chat from the dashboard
-- Save/upload grouped chats to Firebase Firestore
-- AI reply suggestions through Vercel API only
+## Run
+```bash
+npm install
+npm run dev
+```
 
-## Firebase
-Your Firebase config is in `src/firebase.js`.
-Uploaded and manually saved chats are stored in `dailyBriefings`.
-AI reply suggestions are stored in `replySuggestions`.
+## Deploy to Vercel
+Add this environment variable in Vercel:
 
-## Vercel API key
-Do not put the OpenAI API key in the app.
-Add it in Vercel Environment Variables as:
-
-`OPENAI_API_KEY`
+```bash
+OPENAI_API_KEY=your_key_here
+```

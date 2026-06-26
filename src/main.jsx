@@ -99,11 +99,12 @@ function parseUpload(raw){
 function Tile({type, title, count, subtitle, icon}){
   return <div className={`tile ${type}`}><div className="tileIcon">{icon}</div><div><b>{title}</b><div className="big">{count}</div><span>{subtitle}</span></div></div>
 }
-function ChatCard({chat,onSuggest,onDelete}){
+function ChatCard({chat,onSuggest,onDelete,onCategory,onMove,onToggleSelect,selected}){
   return <div className={`chatCard ${chat.category}`}>
-    <div className="chatTop"><b>{chat.name}</b><span className={`pill ${chat.urgency}`}>{chat.urgency}</span></div>
+    <div className="chatTop"><label className="pick"><input type="checkbox" checked={selected} onChange={()=>onToggleSelect(chat.id)}/><b>{chat.name}</b></label><span className={`pill ${chat.urgency}`}>{chat.urgency}</span></div>
+    <div className="miniControls"><select value={chat.category} onChange={e=>onCategory(chat.id,e.target.value)}>{Object.keys(colours).map(k=><option value={k} key={k}>{k==='none'?'No reply':k}</option>)}</select><button onClick={()=>onMove(chat.id,-1)}>↑</button><button onClick={()=>onMove(chat.id,1)}>↓</button></div>
     <div className="messageScroll">{(chat.messages || []).map((m,i)=><p key={i}><small>{m.time}</small>{m.text}</p>)}</div>
-    <div className="cardActions"><button onClick={()=>onSuggest(chat)}><Sparkles size={15}/> AI suggest replies</button><button className="danger" onClick={()=>onDelete(chat.id)}><Trash2 size={15}/> Delete chat</button></div>
+    <div className="cardActions"><button onClick={()=>onSuggest(chat)}><Sparkles size={14}/>AI replies</button><button className="danger" onClick={()=>onDelete(chat.id)}><Trash2 size={14}/>Delete</button></div>
     {chat.replies && <div className="replies">{['short','polite','friendly','firm'].map(k=> chat.replies[k] && <div className="reply" key={k}><small>{k}</small><span>{chat.replies[k]}</span><CopyButton text={chat.replies[k]}/></div>)}</div>}
   </div>
 }
@@ -114,6 +115,7 @@ function App(){
   const [busy,setBusy]=useState('');
   const [search,setSearch]=useState('');
   const [saved,setSaved]=useState('');
+  const [selected,setSelected]=useState([]);
   const visibleChats = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return chats;
@@ -151,10 +153,42 @@ function App(){
   function deleteChat(id){
     if (!confirm('Delete this entire sender/group chat from the dashboard?')) return;
     setChats(cs => cs.filter(c => c.id !== id));
+    setSelected(s => s.filter(x => x !== id));
+  }
+  function changeCategory(id, category){
+    setChats(cs => cs.map(c => c.id === id ? {...c, category} : c));
+  }
+  function moveChat(id, dir){
+    setChats(cs => {
+      const arr=[...cs]; const i=arr.findIndex(c=>c.id===id); const j=i+dir;
+      if(i<0 || j<0 || j>=arr.length) return cs;
+      [arr[i],arr[j]]=[arr[j],arr[i]];
+      return arr;
+    });
+  }
+  function toggleSelect(id){
+    setSelected(s => s.includes(id) ? s.filter(x=>x!==id) : [...s,id]);
+  }
+  function combineSelected(){
+    if(selected.length < 2) return alert('Select at least 2 sender/group boxes to combine.');
+    const chosen = chats.filter(c => selected.includes(c.id));
+    const name = prompt('Name for combined chat:', chosen.map(c=>c.name).join(' + '));
+    if(!name) return;
+    const combined = {
+      id: makeId(name),
+      name,
+      category: chosen[0].category,
+      section: 'Combined',
+      urgency: chosen.some(c=>c.urgency==='high') ? 'high' : (chosen.some(c=>c.urgency==='medium') ? 'medium' : 'low'),
+      messages: dedupeMessages(chosen.flatMap(c => (c.messages||[]).map(m => ({...m, text:`[${c.name}] ${m.text}`})))),
+      replies: null
+    };
+    setChats(cs => [combined, ...cs.filter(c => !selected.includes(c.id))]);
+    setSelected([]);
   }
   const grouped=['work','family','personal','urgent','action','none'];
   return <main>
-    <aside><div className="brand"><MessageSquare size={38}/><h1>WhatsApp<br/>Reply Desk</h1></div><p>AI suggestions for smarter replies</p><label className="upload"><UploadCloud/> Upload Daily Briefing<input type="file" accept=".txt,.json,.csv" onChange={upload}/></label><button className="saveBtn" onClick={()=>saveToFirebase()}><Save size={17}/> Save to Firebase</button><nav>{grouped.map(g=><a key={g}><span style={{background:colours[g]}}/> {g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</a>)}</nav><div className="summary"><b>Daily Summary</b><p>Total chats: {visibleChats.length}</p><p>Need replies: {visibleChats.length-stats.none}</p><p>Action items: {stats.action}</p></div></aside>
+    <aside><div className="brand"><MessageSquare size={38}/><h1>WhatsApp<br/>Reply Desk</h1></div><p>AI suggestions for smarter replies</p><label className="upload"><UploadCloud/> Upload Daily Briefing<input type="file" accept=".txt,.json,.csv" onChange={upload}/></label><button className="combineBtn" onClick={combineSelected}>Combine selected ({selected.length})</button><button className="saveBtn" onClick={()=>saveToFirebase()}><Save size={17}/> Save to Firebase</button><nav>{grouped.map(g=><a key={g}><span style={{background:colours[g]}}/> {g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</a>)}</nav><div className="summary"><b>Daily Summary</b><p>Total chats: {visibleChats.length}</p><p>Need replies: {visibleChats.length-stats.none}</p><p>Action items: {stats.action}</p></div></aside>
     <section className="dash"><div className="topbar"><h2>Bento Reply Dashboard</h2><span><Calendar size={16}/> {new Date().toLocaleDateString('en-SG')}</span></div>
       <div className="searchbar"><Search size={18}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search sender or group..." />{search && <button onClick={()=>setSearch('')}>Clear</button>}</div>
       <div className="grid">
@@ -165,7 +199,7 @@ function App(){
         <Tile type="action" title="ACTION NEEDED" count={stats.action} subtitle="Tasks and follow-up" icon={<CheckSquare/>}/>
         <Tile type="none" title="NO REPLY NEEDED" count={stats.none} subtitle="FYI only" icon={<AlertTriangle/>}/>
       </div>
-      <div className="sections">{grouped.map(g=><section className="section" key={g}><h3 style={{color:colours[g]}}>{g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</h3><div className="cards">{visibleChats.filter(c=>g==='urgent'?c.urgency==='high':g==='action'?(c.urgency!=='low'&&c.category!=='none'):c.category===g).map((c)=><ChatCard chat={c} onSuggest={suggest} onDelete={deleteChat} key={c.id}/>)}</div></section>)}</div>
+      <div className="sections">{grouped.map(g=><section className="section" key={g}><h3 style={{color:colours[g]}}>{g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</h3><div className="cards">{visibleChats.filter(c=>g==='urgent'?c.urgency==='high':g==='action'?(c.urgency!=='low'&&c.category!=='none'):c.category===g).map((c)=><ChatCard chat={c} onSuggest={suggest} onDelete={deleteChat} onCategory={changeCategory} onMove={moveChat} onToggleSelect={toggleSelect} selected={selected.includes(c.id)} key={c.id}/>)}</div></section>)}</div>
       {busy && <div className="busy">Generating replies for {busy}...</div>}{saved && <div className="saved">{saved}</div>}
     </section>
   </main>
