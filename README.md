@@ -1,55 +1,24 @@
 # WhatsApp Reply Desk
 
-Bento-box WhatsApp reply app paired with your WhatsApp briefing app.
+Bento-style WhatsApp reply dashboard.
 
-## Features
-- Upload daily briefing export `.txt`, `.json`, or `.csv`
-- Groups chats by sender or WhatsApp group
-- Removes duplicate messages before display and before Firebase saving
+## Added in this version
+- Search box to search by sender or group name
+- Three-column bento layout for chat sections
+- Chats grouped by sender/group
+- Duplicate messages removed before display and saving
 - Vertical scroll inside each sender/group card
-- Auto-categorises chats by colour:
-  - Work = blue
-  - Family = green
-  - Personal = purple
-  - Urgent = red
-  - Action Needed = orange
-  - No Reply Needed = grey
-- Uses Firebase Firestore to save daily grouped uploads and AI suggestions
-- Uses Vercel API route so no OpenAI key is entered in the app
+- Delete entire sender/group chat from the dashboard
+- Save/upload grouped chats to Firebase Firestore
+- AI reply suggestions through Vercel API only
 
 ## Firebase
-Firebase config is already added in `src/firebase.js`.
-
-Firestore collections used:
-- `dailyBriefings`
-- `replySuggestions`
-
-Each `dailyBriefings` record saves:
-- `fileName`
-- `totalGroups`
-- `totalMessages`
-- `groups`
-- `createdAt`
+Your Firebase config is in `src/firebase.js`.
+Uploaded and manually saved chats are stored in `dailyBriefings`.
+AI reply suggestions are stored in `replySuggestions`.
 
 ## Vercel API key
-In Vercel, add Environment Variable:
+Do not put the OpenAI API key in the app.
+Add it in Vercel Environment Variables as:
 
-`OPENAI_API_KEY=your_key_here`
-
-Optional:
-
-`OPENAI_MODEL=gpt-4o-mini`
-
-Do not put the API key inside the app.
-
-## Run locally
-```bash
-npm install
-npm run dev
-```
-
-## Deploy to Vercel
-```bash
-npm run build
-```
-Then deploy the folder to Vercel.
+`OPENAI_API_KEY`

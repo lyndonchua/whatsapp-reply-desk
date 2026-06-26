@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { Briefcase, Home, User, Bell, CheckSquare, UploadCloud, Copy, MessageSquare, Sparkles, Calendar, AlertTriangle, Users } from 'lucide-react';
+import { Briefcase, Home, User, Bell, CheckSquare, UploadCloud, Copy, MessageSquare, Sparkles, Calendar, AlertTriangle, Search, Trash2, Save } from 'lucide-react';
 import { db } from './firebase';
 import './style.css';
 
@@ -10,213 +10,153 @@ const colours = {
 };
 
 const sampleChats = [
-  { groupName:'Mr Ali', category:'work', section:'Hockey', urgency:'high', messages:[{ sender:'Mr Ali', time:'08:15', text:'Can you confirm the time for DSA trials on 3 July?' }], replies:null },
-  { groupName:'Keith Lee', category:'work', section:'CT Class', urgency:'high', messages:[{ sender:'Keith Lee', time:'07:40', text:'Need you to approve the match schedule.' }], replies:null },
-  { groupName:'Aidan', category:'family', section:'Family', urgency:'medium', messages:[{ sender:'Aidan', time:'Yesterday', text:'Dad, I need help with my project today.' }], replies:null },
-  { groupName:'Friends', category:'personal', section:'Personal', urgency:'low', messages:[{ sender:'Friends', time:'Yesterday', text:'Weekend plan?' }], replies:null },
-  { groupName:'Bank Alert', category:'none', section:'FYI', urgency:'low', messages:[{ sender:'Bank Alert', time:'Yesterday', text:'Transaction successful.' }], replies:null }
+  { id:'sample-1', name:'Mr Ali', category:'work', section:'Hockey', urgency:'high', messages:[{ text:'Can you confirm the time for DSA trials on 3 July?', time:'08:15' }], replies:null },
+  { id:'sample-2', name:'Keith Lee', category:'work', section:'CT Class', urgency:'high', messages:[{ text:'Need you to approve the match schedule.', time:'07:40' }], replies:null },
+  { id:'sample-3', name:'Aidan', category:'family', section:'Family', urgency:'medium', messages:[{ text:'Dad, I need help with my project today.', time:'Yesterday' }], replies:null },
+  { id:'sample-4', name:'Friends', category:'personal', section:'Personal', urgency:'low', messages:[{ text:'Weekend plan?', time:'Yesterday' }], replies:null },
+  { id:'sample-5', name:'Bank Alert', category:'none', section:'FYI', urgency:'low', messages:[{ text:'Transaction successful.', time:'Yesterday' }], replies:null }
 ];
+
+function cleanText(v){ return String(v || '').replace(/\s+/g,' ').trim(); }
+function chatText(chat){ return (chat.messages || []).map(m => m.text).join('\n'); }
+function makeId(name){ return `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
 function guessCategory(name, text){
   const s=(name+' '+text).toLowerCase();
   if(/aidan|megan|dad|mum|family|home/.test(s)) return 'family';
-  if(/student|class|econs|hockey|dsa|coach|teacher|mr |mrs |ms |school|admin|parent|pw|ct|ro|hod|dept|cca/.test(s)) return 'work';
-  if(/fyi|newsletter|promo|bank alert|transaction|otp|receipt/.test(s)) return 'none';
+  if(/student|class|econs|hockey|dsa|coach|teacher|mr |mrs |ms |school|admin|parent|pw|ct/.test(s)) return 'work';
+  if(/fyi|newsletter|promo|bank alert|transaction/.test(s)) return 'none';
   return 'personal';
 }
-
 function guessUrgency(text){
   const s=text.toLowerCase();
-  if(/urgent|today|now|asap|eod|deadline|unwell|submit|approval|confirm.*today|by tonight/.test(s)) return 'high';
-  if(/tomorrow|later|confirm|check|follow up|need reply/.test(s)) return 'medium';
+  if(/urgent|today|now|asap|eod|deadline|unwell|submit/.test(s)) return 'high';
+  if(/tomorrow|later|confirm|check/.test(s)) return 'medium';
   return 'low';
 }
 
-function cleanText(text){
-  return String(text || '').replace(/\s+/g,' ').trim();
+function normaliseMessage(x){
+  if (typeof x === 'string') return { text: x, time: '' };
+  return { text: x.text || x.message || x.body || x.summary || '', time: x.time || x.date || x.timestamp || '' };
 }
 
-function makeMessageKey(groupName, sender, time, text){
-  return [cleanText(groupName).toLowerCase(), cleanText(sender).toLowerCase(), cleanText(time).toLowerCase(), cleanText(text).toLowerCase()].join('|');
-}
-
-function dedupeMessages(messages, groupName){
+function dedupeMessages(messages){
   const seen = new Set();
-  return messages.filter(m => {
-    const key = makeMessageKey(groupName, m.sender, m.time, m.text);
-    if(!m.text || seen.has(key)) return false;
+  return messages.map(normaliseMessage).filter(m => {
+    const text = cleanText(m.text);
+    if (!text) return false;
+    const key = text.toLowerCase();
+    if (seen.has(key)) return false;
     seen.add(key);
-    return true;
-  });
+    return { ...m, text };
+  }).map(m => ({ ...m, text: cleanText(m.text) }));
 }
 
-function normaliseGroupName(value, fallback='Unknown Chat'){
-  return cleanText(value).replace(/^WhatsApp:\s*/i,'').replace(/\s+/g,' ') || fallback;
-}
-
-function groupFlatMessages(rows){
-  const grouped = new Map();
-  for(const row of rows){
-    const groupName = normaliseGroupName(row.groupName || row.group || row.chat || row.name || row.sender);
-    const sender = cleanText(row.sender || row.author || groupName);
-    const time = cleanText(row.time || row.date || row.timestamp || '');
-    const text = cleanText(row.text || row.message || row.summary || row.body || row.messages || '');
-    if(!text) continue;
-    if(!grouped.has(groupName)) grouped.set(groupName, { groupName, messages: [], section: row.section || row.group || 'Uploaded' });
-    grouped.get(groupName).messages.push({ sender, time, text });
-  }
-  return Array.from(grouped.values()).map(g => {
-    const messages = dedupeMessages(g.messages, g.groupName);
-    const allText = messages.map(m=>m.text).join('\n');
-    return { ...g, messages, category: guessCategory(g.groupName, allText), urgency: guessUrgency(allText), replies: null };
-  }).filter(g=>g.messages.length);
-}
-
-function parseJsonUpload(raw){
-  const json = JSON.parse(raw);
-  const arr = Array.isArray(json) ? json : json.chats || json.items || json.groups || json.messages || [];
-  if(!Array.isArray(arr)) return [];
-
-  const groups = [];
-  const flat = [];
-  arr.forEach((x,i)=>{
-    const groupName = normaliseGroupName(x.groupName || x.group || x.chat || x.name || x.sender || `Chat ${i+1}`);
-    if(Array.isArray(x.messages)){
-      const messages = dedupeMessages(x.messages.map(m=>({
-        sender: cleanText(m.sender || m.author || groupName),
-        time: cleanText(m.time || m.date || m.timestamp || ''),
-        text: cleanText(m.text || m.message || m.body || m.summary || '')
-      })), groupName);
-      const allText = messages.map(m=>m.text).join('\n');
-      if(messages.length) groups.push({
-        groupName,
-        messages,
-        section: x.section || x.group || 'Uploaded',
-        category: (x.category || guessCategory(groupName, allText)).toLowerCase(),
-        urgency: x.urgency || guessUrgency(allText),
-        replies: x.replies || null
+function groupAndDedupe(items){
+  const map = new Map();
+  items.forEach((item, i) => {
+    const name = cleanText(item.name || item.chat || item.group || item.sender || `Chat ${i+1}`) || 'Unknown Chat';
+    const messages = dedupeMessages(item.messages || [item.text || item.summary || item.message || '']);
+    if (!messages.length) return;
+    const text = messages.map(m => m.text).join('\n');
+    if (!map.has(name)) {
+      map.set(name, {
+        id: makeId(name),
+        name,
+        category: (item.category || guessCategory(name, text)).toLowerCase(),
+        section: item.section || item.group || 'Uploaded',
+        urgency: item.urgency || guessUrgency(text),
+        messages: [],
+        replies: item.replies || null
       });
-    } else {
-      flat.push({ ...x, groupName, text: x.summary || x.text || x.message || x.body || x.messages || '' });
     }
+    const chat = map.get(name);
+    chat.messages.push(...messages);
+    chat.urgency = chat.urgency === 'high' || guessUrgency(text) === 'high' ? 'high' : (chat.urgency === 'medium' || guessUrgency(text) === 'medium' ? 'medium' : 'low');
+    if (chat.category === 'personal') chat.category = (item.category || guessCategory(name, text)).toLowerCase();
   });
-  return [...groups, ...groupFlatMessages(flat)];
-}
-
-function parseTextUpload(raw){
-  const rows = [];
-  const lines = raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-  let currentGroup = '';
-
-  for(const line of lines){
-    if(/^={3,}|^-{3,}|^chat\s*:/i.test(line)){
-      const possible = line.replace(/^chat\s*:/i,'').replace(/[=\-]/g,'').trim();
-      if(possible) currentGroup = possible;
-      continue;
-    }
-
-    let m = line.match(/^(.+?)\s*[—-]\s*([^:]{1,80}):\s*(.+)$/); // WhatsApp export style: date — sender: msg
-    if(m){
-      const left = m[1].trim();
-      const sender = m[2].trim();
-      const text = m[3].trim();
-      const groupName = currentGroup || sender;
-      rows.push({ groupName, sender, time:left, text });
-      continue;
-    }
-
-    m = line.match(/^\[?([^\]]{5,30})\]?\s+([^:]{1,80}):\s*(.+)$/); // [date] sender: msg
-    if(m){
-      const sender = m[2].trim();
-      rows.push({ groupName: currentGroup || sender, sender, time:m[1].trim(), text:m[3].trim() });
-      continue;
-    }
-
-    m = line.match(/^([^:]{2,80}):\s*(.+)$/); // sender: msg
-    if(m){
-      const sender = m[1].trim();
-      rows.push({ groupName: currentGroup || sender, sender, time:'', text:m[2].trim() });
-      continue;
-    }
-
-    if(rows.length){
-      rows[rows.length-1].text += ' ' + line;
-    } else {
-      rows.push({ groupName:'Uploaded Briefing', sender:'Uploaded Briefing', time:'', text:line });
-    }
-  }
-  return groupFlatMessages(rows);
+  return [...map.values()].map(c => ({ ...c, messages: dedupeMessages(c.messages) }));
 }
 
 function parseUpload(raw){
-  try { return parseJsonUpload(raw); }
-  catch { return parseTextUpload(raw); }
+  try {
+    const json = JSON.parse(raw);
+    const arr = Array.isArray(json) ? json : json.chats || json.items || json.groups || [];
+    return groupAndDedupe(arr);
+  } catch {
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    const items = [];
+    lines.forEach((line, i) => {
+      const m = line.match(/(?:—|-|–)\s*([^:]{1,80}):\s*(.+)$/) || line.match(/^([^:]{2,80}):\s*(.+)$/);
+      if (m) items.push({ name:m[1].trim(), text:m[2].trim() });
+      else items.push({ name:'Unknown Chat', text:line.trim() });
+    });
+    if (!items.length) return [];
+    return groupAndDedupe(items).slice(0,120);
+  }
 }
 
 function Tile({type, title, count, subtitle, icon}){
-  return <div className={`tile ${type}`}><div className="tileIcon">{icon}</div><div><b>{title}</b><div className="big">{count}</div><span>{subtitle}</span></div></div>;
+  return <div className={`tile ${type}`}><div className="tileIcon">{icon}</div><div><b>{title}</b><div className="big">{count}</div><span>{subtitle}</span></div></div>
 }
-
-function messageText(group){
-  return group.messages.map(m=>`${m.time ? m.time + ' — ' : ''}${m.sender}: ${m.text}`).join('\n');
+function ChatCard({chat,onSuggest,onDelete}){
+  return <div className={`chatCard ${chat.category}`}>
+    <div className="chatTop"><b>{chat.name}</b><span className={`pill ${chat.urgency}`}>{chat.urgency}</span></div>
+    <div className="messageScroll">{(chat.messages || []).map((m,i)=><p key={i}><small>{m.time}</small>{m.text}</p>)}</div>
+    <div className="cardActions"><button onClick={()=>onSuggest(chat)}><Sparkles size={15}/> AI suggest replies</button><button className="danger" onClick={()=>onDelete(chat.id)}><Trash2 size={15}/> Delete chat</button></div>
+    {chat.replies && <div className="replies">{['short','polite','friendly','firm'].map(k=> chat.replies[k] && <div className="reply" key={k}><small>{k}</small><span>{chat.replies[k]}</span><CopyButton text={chat.replies[k]}/></div>)}</div>}
+  </div>
 }
-
-function ChatGroupCard({group,onSuggest}){
-  return <div className={`chatCard ${group.category}`}>
-    <div className="chatTop"><b><Users size={15}/> {group.groupName}</b><span className={`pill ${group.urgency}`}>{group.urgency}</span></div>
-    <div className="messageScroll">
-      {group.messages.map((m,i)=><div className="messageLine" key={`${m.sender}-${m.time}-${i}`}>
-        <div><b>{m.sender}</b>{m.time && <small>{m.time}</small>}</div>
-        <p>{m.text}</p>
-      </div>)}
-    </div>
-    <button onClick={()=>onSuggest(group)}><Sparkles size={15}/> AI suggest replies</button>
-    {group.replies && <div className="replies">{['short','polite','friendly','firm'].map(k=> group.replies[k] && <div className="reply" key={k}><small>{k}</small><span>{group.replies[k]}</span><CopyButton text={group.replies[k]}/></div>)}</div>}
-  </div>;
-}
-function CopyButton({text}){return <button className="copy" onClick={()=>navigator.clipboard.writeText(text)}><Copy size={14}/></button>;}
+function CopyButton({text}){return <button className="copy" onClick={()=>navigator.clipboard.writeText(text)}><Copy size={14}/></button>}
 
 function App(){
-  const [groups,setGroups]=useState(sampleChats);
+  const [chats,setChats]=useState(sampleChats);
   const [busy,setBusy]=useState('');
+  const [search,setSearch]=useState('');
+  const [saved,setSaved]=useState('');
+  const visibleChats = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return chats;
+    return chats.filter(c => c.name.toLowerCase().includes(q) || (c.section || '').toLowerCase().includes(q));
+  }, [chats, search]);
   const stats=useMemo(()=>({
-    work:groups.filter(c=>c.category==='work').length,
-    family:groups.filter(c=>c.category==='family').length,
-    personal:groups.filter(c=>c.category==='personal').length,
-    urgent:groups.filter(c=>c.urgency==='high').length,
-    action:groups.filter(c=>c.urgency!=='low' && c.category!=='none').length,
-    none:groups.filter(c=>c.category==='none').length,
-    messages:groups.reduce((sum,g)=>sum+g.messages.length,0)
-  }),[groups]);
-
+    work:visibleChats.filter(c=>c.category==='work').length,
+    family:visibleChats.filter(c=>c.category==='family').length,
+    personal:visibleChats.filter(c=>c.category==='personal').length,
+    urgent:visibleChats.filter(c=>c.urgency==='high').length,
+    action:visibleChats.filter(c=>c.urgency!=='low' && c.category!=='none').length,
+    none:visibleChats.filter(c=>c.category==='none').length
+  }),[visibleChats]);
+  async function saveToFirebase(data = chats, source = 'manual-save'){
+    const cleaned = groupAndDedupe(data);
+    await addDoc(collection(db,'dailyBriefings'),{createdAt:serverTimestamp(),source,totalChats:cleaned.length,chats:cleaned});
+    setSaved(`Saved ${cleaned.length} chats to Firebase`);
+    setTimeout(()=>setSaved(''),2500);
+  }
   async function upload(e){
     const file=e.target.files[0]; if(!file) return;
-    const text=await file.text();
-    const parsed=parseUpload(text);
-    setGroups(parsed);
-    await addDoc(collection(db,'dailyBriefings'),{
-      createdAt:serverTimestamp(),
-      fileName:file.name,
-      totalGroups:parsed.length,
-      totalMessages:parsed.reduce((sum,g)=>sum+g.messages.length,0),
-      groups:parsed
-    });
+    const text=await file.text(); const parsed=parseUpload(text); setChats(parsed);
+    await saveToFirebase(parsed, file.name);
   }
-
-  async function suggest(group){
-    setBusy(group.groupName);
+  async function suggest(chat){
+    setBusy(chat.name);
     try{
-      const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chatName:group.groupName,category:group.category,messages:messageText(group)})});
+      const messages = chatText(chat);
+      const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chatName:chat.name,category:chat.category,messages})});
       const data=await r.json(); if(!r.ok) throw new Error(data.error || 'AI failed');
-      setGroups(cs=>cs.map(c=>c===group?{...c,replies:data}:c));
-      await addDoc(collection(db,'replySuggestions'),{createdAt:serverTimestamp(),chatName:group.groupName,category:group.category,messages:messageText(group),suggestions:data});
-    }catch(err){alert(err.message)} finally{setBusy('');}
+      setChats(cs=>cs.map(c=>c.id===chat.id?{...c,replies:data}:c));
+      await addDoc(collection(db,'replySuggestions'),{createdAt:serverTimestamp(),chatName:chat.name,category:chat.category,messages,suggestions:data});
+    }catch(err){alert(err.message)} finally{setBusy('')}
   }
-
-  const sections=['work','family','personal','urgent','action','none'];
+  function deleteChat(id){
+    if (!confirm('Delete this entire sender/group chat from the dashboard?')) return;
+    setChats(cs => cs.filter(c => c.id !== id));
+  }
+  const grouped=['work','family','personal','urgent','action','none'];
   return <main>
-    <aside><div className="brand"><MessageSquare size={38}/><h1>WhatsApp<br/>Reply Desk</h1></div><p>Grouped by sender or WhatsApp group</p><label className="upload"><UploadCloud/> Upload Daily Briefing<input type="file" accept=".txt,.json,.csv" onChange={upload}/></label><nav>{sections.map(g=><a key={g}><span style={{background:colours[g]}}/> {g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</a>)}</nav><div className="summary"><b>Daily Summary</b><p>Total groups: {groups.length}</p><p>Total messages: {stats.messages}</p><p>Need replies: {groups.length-stats.none}</p><p>Action items: {stats.action}</p></div></aside>
+    <aside><div className="brand"><MessageSquare size={38}/><h1>WhatsApp<br/>Reply Desk</h1></div><p>AI suggestions for smarter replies</p><label className="upload"><UploadCloud/> Upload Daily Briefing<input type="file" accept=".txt,.json,.csv" onChange={upload}/></label><button className="saveBtn" onClick={()=>saveToFirebase()}><Save size={17}/> Save to Firebase</button><nav>{grouped.map(g=><a key={g}><span style={{background:colours[g]}}/> {g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</a>)}</nav><div className="summary"><b>Daily Summary</b><p>Total chats: {visibleChats.length}</p><p>Need replies: {visibleChats.length-stats.none}</p><p>Action items: {stats.action}</p></div></aside>
     <section className="dash"><div className="topbar"><h2>Bento Reply Dashboard</h2><span><Calendar size={16}/> {new Date().toLocaleDateString('en-SG')}</span></div>
+      <div className="searchbar"><Search size={18}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search sender or group..." />{search && <button onClick={()=>setSearch('')}>Clear</button>}</div>
       <div className="grid">
         <Tile type="work" title="WORK" count={stats.work} subtitle="School, admin, classes" icon={<Briefcase/>}/>
         <Tile type="family" title="FAMILY" count={stats.family} subtitle="Home and kids" icon={<Home/>}/>
@@ -225,10 +165,10 @@ function App(){
         <Tile type="action" title="ACTION NEEDED" count={stats.action} subtitle="Tasks and follow-up" icon={<CheckSquare/>}/>
         <Tile type="none" title="NO REPLY NEEDED" count={stats.none} subtitle="FYI only" icon={<AlertTriangle/>}/>
       </div>
-      <div className="sections">{sections.map(g=><section className="section" key={g}><h3 style={{color:colours[g]}}>{g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</h3><div className="cards">{groups.filter(c=>g==='urgent'?c.urgency==='high':g==='action'?(c.urgency!=='low'&&c.category!=='none'):c.category===g).map((c,i)=><ChatGroupCard group={c} onSuggest={suggest} key={c.groupName+i}/>)}</div></section>)}</div>
-      {busy && <div className="busy">Generating replies for {busy}...</div>}
+      <div className="sections">{grouped.map(g=><section className="section" key={g}><h3 style={{color:colours[g]}}>{g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</h3><div className="cards">{visibleChats.filter(c=>g==='urgent'?c.urgency==='high':g==='action'?(c.urgency!=='low'&&c.category!=='none'):c.category===g).map((c)=><ChatCard chat={c} onSuggest={suggest} onDelete={deleteChat} key={c.id}/>)}</div></section>)}</div>
+      {busy && <div className="busy">Generating replies for {busy}...</div>}{saved && <div className="saved">{saved}</div>}
     </section>
-  </main>;
+  </main>
 }
 
 createRoot(document.getElementById('root')).render(<App/>);
