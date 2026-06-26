@@ -4,11 +4,11 @@ Fixed version for faster Vercel deployment.
 
 ## Features
 - Password lock: `344565`
-- Only 3 categories: Work, Family, Personal
+- 5 categories: Work, Family, Personal, Hockey, Classes
 - Urgent / Action / No Reply are NOT columns
 - Search sender or group
 - Group chats by sender/group
-- Vertical scroll within each chat card
+- Vertical scroll within each chat card, with full message text shown
 - Remove duplicate messages
 - Change category
 - Shift chat up/down
@@ -26,3 +26,8 @@ OPENROUTER_MODEL=openai/gpt-5
 ```
 
 Do not put API keys in the frontend.
+
+## Latest update
+- Added Hockey and Classes categories.
+- Latest messages appear at the top.
+- Combined chats keep all messages fully displayed, with each original sender labelled.
