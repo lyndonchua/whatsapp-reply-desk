@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { Briefcase, Home, User, Bell, CheckSquare, UploadCloud, Copy, MessageSquare, Sparkles, Calendar, AlertTriangle, Search, Trash2, Save } from 'lucide-react';
+import { Briefcase, Home, User, UploadCloud, Copy, MessageSquare, Sparkles, Calendar, Search, Trash2, Save } from 'lucide-react';
 import { db } from './firebase';
 import './style.css';
 
 const colours = {
-  work: '#1578ff', family: '#4ac052', personal: '#7d4de8', urgent: '#ff3838', action: '#ff912b', none: '#8b949e'
+  work: '#1578ff', family: '#4ac052', personal: '#7d4de8'
 };
 
 const sampleChats = [
@@ -14,7 +14,7 @@ const sampleChats = [
   { id:'sample-2', name:'Keith Lee', category:'work', section:'CT Class', urgency:'high', messages:[{ text:'Need you to approve the match schedule.', time:'07:40' }], replies:null },
   { id:'sample-3', name:'Aidan', category:'family', section:'Family', urgency:'medium', messages:[{ text:'Dad, I need help with my project today.', time:'Yesterday' }], replies:null },
   { id:'sample-4', name:'Friends', category:'personal', section:'Personal', urgency:'low', messages:[{ text:'Weekend plan?', time:'Yesterday' }], replies:null },
-  { id:'sample-5', name:'Bank Alert', category:'none', section:'FYI', urgency:'low', messages:[{ text:'Transaction successful.', time:'Yesterday' }], replies:null }
+  { id:'sample-5', name:'Bank Alert', category:'personal', section:'FYI', urgency:'low', noReplyNeeded:true, messages:[{ text:'Transaction successful.', time:'Yesterday' }], replies:null }
 ];
 
 function cleanText(v){ return String(v || '').replace(/\s+/g,' ').trim(); }
@@ -25,9 +25,13 @@ function guessCategory(name, text){
   const s=(name+' '+text).toLowerCase();
   if(/aidan|megan|dad|mum|family|home/.test(s)) return 'family';
   if(/student|class|econs|hockey|dsa|coach|teacher|mr |mrs |ms |school|admin|parent|pw|ct/.test(s)) return 'work';
-  if(/fyi|newsletter|promo|bank alert|transaction/.test(s)) return 'none';
   return 'personal';
 }
+function normaliseCategory(category){
+  const c = String(category || '').toLowerCase();
+  return ['work','family','personal'].includes(c) ? c : 'personal';
+}
+
 function guessUrgency(text){
   const s=text.toLowerCase();
   if(/urgent|today|now|asap|eod|deadline|unwell|submit/.test(s)) return 'high';
@@ -63,7 +67,7 @@ function groupAndDedupe(items){
       map.set(name, {
         id: makeId(name),
         name,
-        category: (item.category || guessCategory(name, text)).toLowerCase(),
+        category: normaliseCategory(item.category || guessCategory(name, text)),
         section: item.section || item.group || 'Uploaded',
         urgency: item.urgency || guessUrgency(text),
         messages: [],
@@ -73,7 +77,7 @@ function groupAndDedupe(items){
     const chat = map.get(name);
     chat.messages.push(...messages);
     chat.urgency = chat.urgency === 'high' || guessUrgency(text) === 'high' ? 'high' : (chat.urgency === 'medium' || guessUrgency(text) === 'medium' ? 'medium' : 'low');
-    if (chat.category === 'personal') chat.category = (item.category || guessCategory(name, text)).toLowerCase();
+    if (chat.category === 'personal') chat.category = normaliseCategory(item.category || guessCategory(name, text));
   });
   return [...map.values()].map(c => ({ ...c, messages: dedupeMessages(c.messages) }));
 }
@@ -102,7 +106,7 @@ function Tile({type, title, count, subtitle, icon}){
 function ChatCard({chat,onSuggest,onDelete,onCategory,onMove,onToggleSelect,selected}){
   return <div className={`chatCard ${chat.category}`}>
     <div className="chatTop"><label className="pick"><input type="checkbox" checked={selected} onChange={()=>onToggleSelect(chat.id)}/><b>{chat.name}</b></label><span className={`pill ${chat.urgency}`}>{chat.urgency}</span></div>
-    <div className="miniControls"><select value={chat.category} onChange={e=>onCategory(chat.id,e.target.value)}>{Object.keys(colours).map(k=><option value={k} key={k}>{k==='none'?'No reply':k}</option>)}</select><button onClick={()=>onMove(chat.id,-1)}>↑</button><button onClick={()=>onMove(chat.id,1)}>↓</button></div>
+    <div className="miniControls"><select value={chat.category} onChange={e=>onCategory(chat.id,e.target.value)}>{Object.keys(colours).map(k=><option value={k} key={k}>{k}</option>)}</select><button onClick={()=>onMove(chat.id,-1)}>↑</button><button onClick={()=>onMove(chat.id,1)}>↓</button></div>
     <div className="messageScroll">{(chat.messages || []).map((m,i)=><p key={i}><small>{m.time}</small>{m.text}</p>)}</div>
     <div className="cardActions"><button onClick={()=>onSuggest(chat)}><Sparkles size={14}/>AI replies</button><button className="danger" onClick={()=>onDelete(chat.id)}><Trash2 size={14}/>Delete</button></div>
     {chat.replies && <div className="replies">{['short','polite','friendly','firm'].map(k=> chat.replies[k] && <div className="reply" key={k}><small>{k}</small><span>{chat.replies[k]}</span><CopyButton text={chat.replies[k]}/></div>)}</div>}
@@ -126,8 +130,7 @@ function App(){
     family:visibleChats.filter(c=>c.category==='family').length,
     personal:visibleChats.filter(c=>c.category==='personal').length,
     urgent:visibleChats.filter(c=>c.urgency==='high').length,
-    action:visibleChats.filter(c=>c.urgency!=='low' && c.category!=='none').length,
-    none:visibleChats.filter(c=>c.category==='none').length
+    needReply:visibleChats.filter(c=>!c.noReplyNeeded).length
   }),[visibleChats]);
   async function saveToFirebase(data = chats, source = 'manual-save'){
     const cleaned = groupAndDedupe(data);
@@ -156,7 +159,7 @@ function App(){
     setSelected(s => s.filter(x => x !== id));
   }
   function changeCategory(id, category){
-    setChats(cs => cs.map(c => c.id === id ? {...c, category} : c));
+    setChats(cs => cs.map(c => c.id === id ? {...c, category: normaliseCategory(category)} : c));
   }
   function moveChat(id, dir){
     setChats(cs => {
@@ -186,20 +189,17 @@ function App(){
     setChats(cs => [combined, ...cs.filter(c => !selected.includes(c.id))]);
     setSelected([]);
   }
-  const grouped=['work','family','personal','urgent','action','none'];
+  const grouped=['work','family','personal'];
   return <main>
-    <aside><div className="brand"><MessageSquare size={38}/><h1>WhatsApp<br/>Reply Desk</h1></div><p>AI suggestions for smarter replies</p><label className="upload"><UploadCloud/> Upload Daily Briefing<input type="file" accept=".txt,.json,.csv" onChange={upload}/></label><button className="combineBtn" onClick={combineSelected}>Combine selected ({selected.length})</button><button className="saveBtn" onClick={()=>saveToFirebase()}><Save size={17}/> Save to Firebase</button><nav>{grouped.map(g=><a key={g}><span style={{background:colours[g]}}/> {g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</a>)}</nav><div className="summary"><b>Daily Summary</b><p>Total chats: {visibleChats.length}</p><p>Need replies: {visibleChats.length-stats.none}</p><p>Action items: {stats.action}</p></div></aside>
+    <aside><div className="brand"><MessageSquare size={38}/><h1>WhatsApp<br/>Reply Desk</h1></div><p>AI suggestions for smarter replies</p><label className="upload"><UploadCloud/> Upload Daily Briefing<input type="file" accept=".txt,.json,.csv" onChange={upload}/></label><button className="combineBtn" onClick={combineSelected}>Combine selected ({selected.length})</button><button className="saveBtn" onClick={()=>saveToFirebase()}><Save size={17}/> Save to Firebase</button><nav>{grouped.map(g=><a key={g}><span style={{background:colours[g]}}/> {g[0].toUpperCase()+g.slice(1)}</a>)}</nav><div className="summary"><b>Daily Summary</b><p>Total chats: {visibleChats.length}</p><p>Need replies: {stats.needReply}</p><p>High priority: {stats.urgent}</p></div></aside>
     <section className="dash"><div className="topbar"><h2>Bento Reply Dashboard</h2><span><Calendar size={16}/> {new Date().toLocaleDateString('en-SG')}</span></div>
       <div className="searchbar"><Search size={18}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search sender or group..." />{search && <button onClick={()=>setSearch('')}>Clear</button>}</div>
       <div className="grid">
         <Tile type="work" title="WORK" count={stats.work} subtitle="School, admin, classes" icon={<Briefcase/>}/>
         <Tile type="family" title="FAMILY" count={stats.family} subtitle="Home and kids" icon={<Home/>}/>
         <Tile type="personal" title="PERSONAL" count={stats.personal} subtitle="Friends and personal" icon={<User/>}/>
-        <Tile type="urgent" title="URGENT REPLIES" count={stats.urgent} subtitle="Need attention" icon={<Bell/>}/>
-        <Tile type="action" title="ACTION NEEDED" count={stats.action} subtitle="Tasks and follow-up" icon={<CheckSquare/>}/>
-        <Tile type="none" title="NO REPLY NEEDED" count={stats.none} subtitle="FYI only" icon={<AlertTriangle/>}/>
       </div>
-      <div className="sections">{grouped.map(g=><section className="section" key={g}><h3 style={{color:colours[g]}}>{g==='none'?'No Reply Needed':g[0].toUpperCase()+g.slice(1)}</h3><div className="cards">{visibleChats.filter(c=>g==='urgent'?c.urgency==='high':g==='action'?(c.urgency!=='low'&&c.category!=='none'):c.category===g).map((c)=><ChatCard chat={c} onSuggest={suggest} onDelete={deleteChat} onCategory={changeCategory} onMove={moveChat} onToggleSelect={toggleSelect} selected={selected.includes(c.id)} key={c.id}/>)}</div></section>)}</div>
+      <div className="sections">{grouped.map(g=><section className="section" key={g}><h3 style={{color:colours[g]}}>{g[0].toUpperCase()+g.slice(1)}</h3><div className="cards">{visibleChats.filter(c=>c.category===g).map((c)=><ChatCard chat={c} onSuggest={suggest} onDelete={deleteChat} onCategory={changeCategory} onMove={moveChat} onToggleSelect={toggleSelect} selected={selected.includes(c.id)} key={c.id}/>)}</div></section>)}</div>
       {busy && <div className="busy">Generating replies for {busy}...</div>}{saved && <div className="saved">{saved}</div>}
     </section>
   </main>

@@ -1,28 +1,25 @@
 # WhatsApp Reply Desk
 
-Updated features:
-- Search by sender or group.
-- Group chats by sender or group.
-- Remove duplicate messages.
-- Save uploaded/grouped chats to Firebase Firestore.
-- AI reply suggestions through Vercel `/api/suggest`; API key stays in Vercel as `OPENAI_API_KEY`.
-- Vertical scroll inside each sender/group card.
-- Vertical scroll in the left column.
-- Compact bento layout that fits a normal website screen.
-- Change category for any chat: Work, Family, Personal, No Reply Needed.
-- Shift/move sender/group bento boxes up or down.
-- Select and combine multiple chats into one combined chat.
-- Delete an entire sender/group chat.
+Updated from the uploaded OpenRouter zip.
 
-## Run
-```bash
-npm install
-npm run dev
+Changes in this version:
+- Only 3 categories/columns: Work, Family, Personal
+- Removed separate Urgent, Action, and No Reply Needed columns
+- Urgency remains as a label inside each chat card
+- Search box searches sender/group names and sections
+- Sender/group cards have their own vertical message scroll
+- Left sidebar has vertical scroll
+- Delete entire sender/group chat option
+- Combine selected chats option
+- Change category option for each sender/group
+- Save grouped/deduplicated chats to Firebase
+- AI replies use OpenRouter only through Vercel `/api/suggest`
+
+Vercel environment variables:
+
+```text
+OPENROUTER_API_KEY=your_openrouter_key
+OPENROUTER_MODEL=openai/gpt-5
 ```
 
-## Deploy to Vercel
-Add this environment variable in Vercel:
-
-```bash
-OPENAI_API_KEY=your_key_here
-```
+The API key is not entered in the app frontend.
