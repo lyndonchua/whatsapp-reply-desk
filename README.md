@@ -1,21 +1,28 @@
-# WhatsApp Reply Desk
+# WhatsApp Reply Desk - Final Clean Version
 
-Updated version:
+Fixed version for faster Vercel deployment.
+
+## Features
 - Password lock: `344565`
-- Only 3 dashboard categories: Work, Family, Personal
-- Urgent / Action / No Reply Needed are NOT columns; they are card attributes only
-- Group chats by sender or group
+- Only 3 categories: Work, Family, Personal
+- Urgent / Action / No Reply are NOT columns
+- Search sender or group
+- Group chats by sender/group
+- Vertical scroll within each chat card
 - Remove duplicate messages
-- Vertical scroll inside each sender/group card and each column
-- Search sender, group, or message
+- Change category
+- Shift chat up/down
 - Combine selected chats
 - Delete entire chat
-- Save grouped chats to Firebase
-- AI replies through OpenRouter only via Vercel `/api/suggest`
+- Save to Firebase
+- AI replies via OpenRouter only, through Vercel API
 
 ## Vercel environment variables
+Set these in Vercel:
 
-```txt
-OPENROUTER_API_KEY=your_openrouter_api_key
+```text
+OPENROUTER_API_KEY=your_key_here
 OPENROUTER_MODEL=openai/gpt-5
 ```
+
+Do not put API keys in the frontend.
