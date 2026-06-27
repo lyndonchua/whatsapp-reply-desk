@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { collection, doc, setDoc, getDocs, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { Upload, Save, Trash2, Search, Lock, Unlock, Bot, Copy, Merge, ArrowUp, ArrowDown } from 'lucide-react';
+import { Upload, Save, Trash2, Search, Lock, Unlock, Bot, Copy, Merge, ArrowUp, ArrowDown, ClipboardPaste } from 'lucide-react';
 import './style.css';
 
 const PASSWORD = '344565';
@@ -74,6 +74,7 @@ function App(){
   const [selected,setSelected] = useState(new Set());
   const [ai,setAi] = useState({});
   const [saving,setSaving] = useState(false);
+  const [pasteText,setPasteText] = useState('');
 
   async function loadFirebase(){
     setLoading(true);
@@ -126,6 +127,14 @@ function App(){
     }
   }
   function importFile(e){ const f=e.target.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ const parsed=parseText(String(r.result||'')); setChats(cs=>mergeChats([...cs,...parsed]));}; r.readAsText(f); }
+  function importPastedText(){
+    const raw = pasteText.trim();
+    if(!raw){ alert('Paste WhatsApp messages first.'); return; }
+    const parsed = parseText(raw);
+    if(parsed.length===0){ alert('No WhatsApp messages detected. Check the pasted format.'); return; }
+    setChats(cs=>mergeChats([...cs,...parsed]));
+    setPasteText('');
+  }
   function mergeChats(list){ const map = new Map(); for(const c of list){ const key=normalise(c.sender); if(!map.has(key)) map.set(key,{...c,messages:[]}); const old=map.get(key); old.messages.push(...(c.messages||[])); old.category=old.category||c.category; old.priority=old.priority||c.priority; } return Array.from(map.values()).map(removeDupes); }
   function combineSelected(){ const ids=[...selected]; if(ids.length<2) return; const chosen=chats.filter(c=>selected.has(c.id)); const base={...chosen[0], sender: 'Combined: ' + chosen.map(c=>c.sender).join(' + '), messages: chosen.flatMap(c=>(c.messages||[]).map(m=>({...m, text:`[${c.sender}] ${m.text}`})))}; setChats(cs=>[...cs.filter(c=>!selected.has(c.id)), removeDupes(base)]); setSelected(new Set()); }
   async function askAI(c){ setAi(a=>({...a,[c.id]:'Generating...'})); const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}); const data=await r.json(); setAi(a=>({...a,[c.id]:data.reply||data.error||'No reply.'})); }
@@ -134,6 +143,11 @@ function App(){
     <aside className="side">
       <h1>💬 WhatsApp<br/>Reply Desk</h1><p>OpenRouter AI replies</p>
       <label className="upload"><Upload size={20}/> Upload Daily Briefing<input type="file" accept=".txt,.csv,.json" onChange={importFile}/></label>
+      <div className="pasteBox">
+        <label>Paste WhatsApp messages</label>
+        <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={"Paste messages here, e.g.\n27 Jun, 10:05 — Name: Message"}></textarea>
+        <button className="wide pasteBtn" onClick={importPastedText}><ClipboardPaste size={18}/> Import pasted text</button>
+      </div>
       <button className="wide" onClick={combineSelected}><Merge size={18}/> Combine selected ({selected.size})</button>
       <button className="wide dark" onClick={saveAll} disabled={saving}><Save size={18}/> {saving?'Saving...':'Save to Firebase'}</button>
       <button className="wide" onClick={loadFirebase} disabled={loading}><Save size={18}/> {loading?'Loading Firebase...':'Refresh from Firebase'}</button>
@@ -146,7 +160,7 @@ function App(){
     </aside>
     <main className="board">
       {loading&&<div className="statusBanner">Loading chats from Firebase...</div>}
-      {!loading&&loadedFromFirebase&&chats.length===0&&<div className="statusBanner">No chats found in Firebase. Upload a daily briefing, then Save to Firebase.</div>}
+      {!loading&&loadedFromFirebase&&chats.length===0&&<div className="statusBanner">No chats found in Firebase. Upload a daily briefing or paste WhatsApp messages, then Save to Firebase.</div>}
       {cats.map(cat=><section className={`col ${cat}`} key={cat}><h2>{catTitle[cat]}</h2><p className="colSub">{catSub[cat]}</p><div className="cards">
         {byCat[cat].map(c=><article className="card" key={c.id}>
           <div className="top"><input type="checkbox" checked={selected.has(c.id)} onChange={e=>{const n=new Set(selected); e.target.checked?n.add(c.id):n.delete(c.id); setSelected(n)}}/><b>{c.sender}</b><span className={`pill ${c.priority?.toLowerCase()}`}>{c.priority}</span></div>
