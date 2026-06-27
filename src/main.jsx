@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { collection, doc, setDoc, getDocs, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { Upload, Save, Trash2, Search, Lock, Unlock, Bot, Copy, Merge, ArrowUp, ArrowDown, ClipboardPaste } from 'lucide-react';
+import { Upload, Save, Trash2, Search, Lock, Unlock, Bot, Copy, Merge, ArrowUp, ArrowDown, ClipboardPaste, RotateCcw } from 'lucide-react';
 import './style.css';
 
 const PASSWORD = '344565';
@@ -44,13 +44,21 @@ function parseText(raw){
 }
 function timeRank(t){
   const v = String(t||'').toLowerCase();
-  if(v.includes('today')) return 10_000_000;
-  if(v.includes('yesterday')) return 9_000_000;
+  const months = {jan:1,january:1,feb:2,february:2,mar:3,march:3,apr:4,april:4,may:5,jun:6,june:6,jul:7,july:7,aug:8,august:8,sep:9,sept:9,september:9,oct:10,october:10,nov:11,november:11,dec:12,december:12};
+  let year = 2000, month = 1, day = 1, hour = 0, minute = 0;
   const hm = v.match(/(\d{1,2}):(\d{2})/);
-  if(hm) return Number(hm[1])*60 + Number(hm[2]);
-  const d = v.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-]?(\d{2,4})?/);
-  if(d) return Number(d[3]||0)*10000 + Number(d[2])*100 + Number(d[1]);
-  return 0;
+  if(hm){ hour = Number(hm[1]); minute = Number(hm[2]); }
+  const named = v.match(/(\d{1,2})\s+([a-z]{3,9})(?:\s+(\d{2,4}))?/);
+  if(named){
+    day = Number(named[1]); month = months[named[2]] || 1;
+    if(named[3]) year = Number(named[3].length===2 ? '20'+named[3] : named[3]);
+  } else {
+    const d = v.match(/(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?/);
+    if(d){ day = Number(d[1]); month = Number(d[2]); if(d[3]) year = Number(d[3].length===2 ? '20'+d[3] : d[3]); }
+  }
+  if(v.includes('yesterday')) day = 0;
+  if(v.includes('today')) day = 1;
+  return (((year*100 + month)*100 + day)*24*60) + hour*60 + minute;
 }
 function removeDupes(chat){
   const seen = new Set();
@@ -59,7 +67,7 @@ function removeDupes(chat){
     const k = normalise((m.time||'')+'|'+(m.text||''));
     if(!seen.has(k)){ seen.add(k); messages.push(m); }
   }
-  return {...chat, messages: messages.sort((a,b)=>timeRank(b.time)-timeRank(a.time))};
+  return {...chat, messages: messages.sort((a,b)=>timeRank(a.time)-timeRank(b.time))};
 }
 
 function App(){
@@ -116,6 +124,28 @@ function App(){
       setSaving(false);
     }
   }
+
+  async function clearAllChats(){
+    if(!confirm('Remove ALL chats from this app and Firebase? You can reupload or paste again after this.')) return;
+    setFirebaseError('');
+    setSaving(true);
+    try{
+      const snap = await getDocs(collection(db,'chats'));
+      await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,'chats',d.id))));
+      setChats([]);
+      setSelected(new Set());
+      setAi({});
+      setLoadedFromFirebase(true);
+      alert('All chats removed. You can reupload or paste messages now.');
+    }catch(error){
+      console.error('Firebase clear failed:', error);
+      setFirebaseError(error?.message || 'Could not remove all chats. Check Firestore rules.');
+      alert(error?.message || 'Could not remove all chats. Check Firestore rules.');
+    }finally{
+      setSaving(false);
+    }
+  }
+
   async function del(id){
     setChats(cs=>cs.filter(c=>c.id!==id));
     setFirebaseError('');
@@ -149,6 +179,7 @@ function App(){
         <button className="wide pasteBtn" onClick={importPastedText}><ClipboardPaste size={18}/> Import pasted text</button>
       </div>
       <button className="wide" onClick={combineSelected}><Merge size={18}/> Combine selected ({selected.size})</button>
+      <button className="wide dangerWide" onClick={clearAllChats} disabled={saving}><RotateCcw size={18}/> Remove all chats</button>
       <button className="wide dark" onClick={saveAll} disabled={saving}><Save size={18}/> {saving?'Saving...':'Save to Firebase'}</button>
       <button className="wide" onClick={loadFirebase} disabled={loading}><Save size={18}/> {loading?'Loading Firebase...':'Refresh from Firebase'}</button>
       {firebaseError&&<div className="errorBox">Firebase error: {firebaseError}</div>}
