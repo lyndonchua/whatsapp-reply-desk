@@ -125,27 +125,6 @@ function App(){
     }
   }
 
-  async function clearAllChats(){
-    if(!confirm('Remove ALL chats from this app and Firebase? You can reupload or paste again after this.')) return;
-    setFirebaseError('');
-    setSaving(true);
-    try{
-      const snap = await getDocs(collection(db,'chats'));
-      await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,'chats',d.id))));
-      setChats([]);
-      setSelected(new Set());
-      setAi({});
-      setLoadedFromFirebase(true);
-      alert('All chats removed. You can reupload or paste messages now.');
-    }catch(error){
-      console.error('Firebase clear failed:', error);
-      setFirebaseError(error?.message || 'Could not remove all chats. Check Firestore rules.');
-      alert(error?.message || 'Could not remove all chats. Check Firestore rules.');
-    }finally{
-      setSaving(false);
-    }
-  }
-
   async function del(id){
     setChats(cs=>cs.filter(c=>c.id!==id));
     setFirebaseError('');
@@ -179,8 +158,7 @@ function App(){
         <button className="wide pasteBtn" onClick={importPastedText}><ClipboardPaste size={18}/> Import pasted text</button>
       </div>
       <button className="wide" onClick={combineSelected}><Merge size={18}/> Combine selected ({selected.size})</button>
-      <button className="wide dangerWide" onClick={clearAllChats} disabled={saving}><RotateCcw size={18}/> Remove all chats</button>
-      <button className="wide dark" onClick={saveAll} disabled={saving}><Save size={18}/> {saving?'Saving...':'Save to Firebase'}</button>
+            <button className="wide dark" onClick={saveAll} disabled={saving}><Save size={18}/> {saving?'Saving...':'Save to Firebase'}</button>
       <button className="wide" onClick={loadFirebase} disabled={loading}><Save size={18}/> {loading?'Loading Firebase...':'Refresh from Firebase'}</button>
       {firebaseError&&<div className="errorBox">Firebase error: {firebaseError}</div>}
       {!firebaseError&&loadedFromFirebase&&<div className="okBox">Loaded from Firebase</div>}
