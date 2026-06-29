@@ -9,3 +9,9 @@
 .statusBanner{grid-column:1 / -1;margin:0 0 10px 0;padding:12px 14px;border:1px solid #dbeafe;background:#eff6ff;color:#1d4ed8;border-radius:14px;font-weight:800}
 .dangerWide{background:#fff0f0;color:#dc2626;border:1px solid #fecaca}
 .dangerWide:disabled{opacity:.65;cursor:not-allowed}
+.chatTools{margin:8px 0 10px;padding:10px;border:1px solid #d7e1ee;border-radius:12px;background:#f8fbff;display:grid;gap:7px}
+.chatTools label{font-size:13px;font-weight:900;color:#27364a}
+.chatTools select{width:100%;border:1px solid #cfdaea;border-radius:10px;padding:9px;background:white;font-size:13px;outline:0}
+.toolBtn{margin:0;background:#eef6ff;color:#0967ff}
+.panelOutput{white-space:pre-wrap;font-family:inherit;font-size:12px;line-height:1.35;background:#07111f;color:#fff;border-radius:10px;padding:9px;max-height:220px;overflow-y:auto;margin:0}
+.copyPanel{margin:0;background:#101319;color:white}

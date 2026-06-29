@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { collection, doc, setDoc, getDocs, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { Upload, Save, Trash2, Search, Lock, Unlock, Bot, Copy, Merge, ArrowUp, ArrowDown, ClipboardPaste, RotateCcw, Download, FileText, CheckSquare } from 'lucide-react';
+import { Upload, Save, Trash2, Search, Lock, Unlock, Bot, Copy, Merge, ArrowUp, ArrowDown, ClipboardPaste, Download, FileText, ListChecks } from 'lucide-react';
 import './style.css';
 
 const PASSWORD = '344565';
@@ -83,6 +83,9 @@ function App(){
   const [ai,setAi] = useState({});
   const [saving,setSaving] = useState(false);
   const [pasteText,setPasteText] = useState('');
+  const [panelChatId,setPanelChatId] = useState('');
+  const [panelOutput,setPanelOutput] = useState('');
+  const [panelBusy,setPanelBusy] = useState('');
 
   async function loadFirebase(){
     setLoading(true);
@@ -104,6 +107,7 @@ function App(){
   if(!unlocked) return <div className="lockPage"><form onSubmit={login} className="lockBox"><Lock size={36}/><h1>WhatsApp Reply Desk</h1><p>Password Required</p><input autoFocus type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Password"/><button>Unlock</button>{err&&<b>{err}</b>}</form></div>
 
   const filtered = chats.filter(c=>normalise(c.sender).includes(normalise(q)));
+  const panelChat = chats.find(c=>c.id===panelChatId) || filtered[0] || chats[0] || null;
   const byCat = Object.fromEntries(cats.map(cat=>[cat, filtered.filter(c=>c.category===cat)]));
   function updateChat(id, patch){ setChats(cs=>cs.map(c=>c.id===id?{...c,...patch}:c)); }
   function move(id, dir){ setChats(cs=>{ const i=cs.findIndex(c=>c.id===id); if(i<0) return cs; const j=i+dir; if(j<0||j>=cs.length) return cs; const a=[...cs]; [a[i],a[j]]=[a[j],a[i]]; return a; }); }
@@ -120,27 +124,6 @@ function App(){
       console.error('Firebase save failed:', error);
       setFirebaseError(error?.message || 'Firebase save failed. Check Firestore rules.');
       alert(error?.message || 'Firebase save failed. Check Firestore rules.');
-    }finally{
-      setSaving(false);
-    }
-  }
-
-  async function clearAllChats(){
-    if(!confirm('Remove ALL chats from this app and Firebase? You can reupload or paste again after this.')) return;
-    setFirebaseError('');
-    setSaving(true);
-    try{
-      const snap = await getDocs(collection(db,'chats'));
-      await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,'chats',d.id))));
-      setChats([]);
-      setSelected(new Set());
-      setAi({});
-      setLoadedFromFirebase(true);
-      alert('All chats removed. You can reupload or paste messages now.');
-    }catch(error){
-      console.error('Firebase clear failed:', error);
-      setFirebaseError(error?.message || 'Could not remove all chats. Check Firestore rules.');
-      alert(error?.message || 'Could not remove all chats. Check Firestore rules.');
     }finally{
       setSaving(false);
     }
@@ -167,30 +150,37 @@ function App(){
   }
   function mergeChats(list){ const map = new Map(); for(const c of list){ const key=normalise(c.sender); if(!map.has(key)) map.set(key,{...c,messages:[]}); const old=map.get(key); old.messages.push(...(c.messages||[])); old.category=old.category||c.category; old.priority=old.priority||c.priority; } return Array.from(map.values()).map(removeDupes); }
   function combineSelected(){ const ids=[...selected]; if(ids.length<2) return; const chosen=chats.filter(c=>selected.has(c.id)); const base={...chosen[0], sender: 'Combined: ' + chosen.map(c=>c.sender).join(' + '), messages: chosen.flatMap(c=>(c.messages||[]).map(m=>({...m, text:`[${c.sender}] ${m.text}`})))}; setChats(cs=>[...cs.filter(c=>!selected.has(c.id)), removeDupes(base)]); setSelected(new Set()); }
-  function chatText(c){
-    const header = `Sender/Group: ${c.sender}\nCategory: ${catTitle[c.category] || c.category || ''}\n\n`;
-    const body = (c.messages||[]).map(m=>`[${m.time || ''}] ${m.text || ''}`).join('\n');
-    return header + body;
+  function chatPlainText(c){
+    return `Sender/group: ${c.sender}
+Category: ${catTitle[c.category] || c.category || ''}
+
+` + (c.messages||[]).map(m=>`${m.time || ''} - ${m.text || ''}`).join('\n');
   }
-  function safeFileName(name){ return String(name||'chat').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim().slice(0,80) || 'chat'; }
   function exportChat(c){
-    const blob = new Blob([chatText(c)], {type:'text/plain;charset=utf-8'});
+    if(!c){ alert('Select a sender or group first.'); return; }
+    const blob = new Blob([chatPlainText(c)], {type:'text/plain;charset=utf-8'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${safeFileName(c.sender)}-chat-export.txt`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    a.download = `${(c.sender || 'chat').replace(/[\\/:*?"<>|]+/g,'-').slice(0,80)}-chat.txt`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   }
-  async function askAI(c, mode='reply'){
-    const label = mode==='summary' ? 'Summarising...' : mode==='actions' ? 'Finding actionable items...' : 'Generating...';
-    setAi(a=>({...a,[c.id]:label}));
-    const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...c, mode})});
-    const data=await r.json();
-    setAi(a=>({...a,[c.id]:data.reply||data.error||'No reply.'}));
+  async function askAI(c){ setAi(a=>({...a,[c.id]:'Generating...'})); const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}); const data=await r.json(); setAi(a=>({...a,[c.id]:data.reply||data.error||'No reply.'})); }
+  async function askPanelAI(mode){
+    const c = panelChat;
+    if(!c){ alert('Select a sender or group first.'); return; }
+    setPanelBusy(mode); setPanelOutput('Generating...');
+    try{
+      const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...c, mode})});
+      const data=await r.json();
+      setPanelOutput(data.reply||data.error||'No result.');
+    }catch(error){
+      setPanelOutput(error?.message || 'AI request failed.');
+    }finally{
+      setPanelBusy('');
+    }
   }
+
 
   return <div className="app">
     <aside className="side">
@@ -202,8 +192,18 @@ function App(){
         <button className="wide pasteBtn" onClick={importPastedText}><ClipboardPaste size={18}/> Import pasted text</button>
       </div>
       <button className="wide" onClick={combineSelected}><Merge size={18}/> Combine selected ({selected.size})</button>
-      <button className="wide dangerWide" onClick={clearAllChats} disabled={saving}><RotateCcw size={18}/> Remove all chats</button>
-      <button className="wide dark" onClick={saveAll} disabled={saving}><Save size={18}/> {saving?'Saving...':'Save to Firebase'}</button>
+      <div className="chatTools">
+        <label>Sender / group tools</label>
+        <select value={panelChat?.id || ''} onChange={e=>setPanelChatId(e.target.value)}>
+          {filtered.map(c=><option value={c.id} key={c.id}>{c.sender}</option>)}
+        </select>
+        <button className="wide toolBtn" onClick={()=>exportChat(panelChat)}><Download size={18}/> Export selected chat</button>
+        <button className="wide toolBtn" onClick={()=>askPanelAI('summary')} disabled={!!panelBusy}><FileText size={18}/> {panelBusy==='summary'?'Summarising...':'AI summarise selected chat'}</button>
+        <button className="wide toolBtn" onClick={()=>askPanelAI('actions')} disabled={!!panelBusy}><ListChecks size={18}/> {panelBusy==='actions'?'Finding actions...':'AI action items selected chat'}</button>
+        {panelOutput&&<pre className="panelOutput">{panelOutput}</pre>}
+        {panelOutput&&<button className="wide copyPanel" onClick={()=>navigator.clipboard.writeText(panelOutput)}><Copy size={18}/> Copy result</button>}
+      </div>
+            <button className="wide dark" onClick={saveAll} disabled={saving}><Save size={18}/> {saving?'Saving...':'Save to Firebase'}</button>
       <button className="wide" onClick={loadFirebase} disabled={loading}><Save size={18}/> {loading?'Loading Firebase...':'Refresh from Firebase'}</button>
       {firebaseError&&<div className="errorBox">Firebase error: {firebaseError}</div>}
       {!firebaseError&&loadedFromFirebase&&<div className="okBox">Loaded from Firebase</div>}
@@ -221,7 +221,7 @@ function App(){
           <div className="row"><select value={c.category} onChange={e=>updateChat(c.id,{category:e.target.value})}>{cats.map(x=><option value={x} key={x}>{catTitle[x]}</option>)}</select><button onClick={()=>move(c.id,-1)}><ArrowUp size={14}/></button><button onClick={()=>move(c.id,1)}><ArrowDown size={14}/></button></div>
           <div className="msgs">{(c.messages||[]).map((m,i)=><div className="msg" key={i}><b>{m.time}</b><br/>{m.text}</div>)}</div>
           {ai[c.id]&&<pre className="ai">{ai[c.id]}</pre>}
-          <div className="actions"><button onClick={()=>exportChat(c)}><Download size={16}/> Export</button><button onClick={()=>askAI(c,'reply')}><Bot size={16}/> AI replies</button><button onClick={()=>askAI(c,'summary')}><FileText size={16}/> Summarise</button><button onClick={()=>askAI(c,'actions')}><CheckSquare size={16}/> Actions</button>{ai[c.id]&&<button onClick={()=>navigator.clipboard.writeText(ai[c.id])}><Copy size={16}/> Copy</button>}<button className="danger" onClick={()=>del(c.id)}><Trash2 size={16}/> Delete chat</button></div>
+          <div className="actions"><button onClick={()=>askAI(c)}><Bot size={16}/> AI replies</button>{ai[c.id]&&<button onClick={()=>navigator.clipboard.writeText(ai[c.id])}><Copy size={16}/> Copy</button>}<button className="danger" onClick={()=>del(c.id)}><Trash2 size={16}/> Delete chat</button></div>
         </article>)}
       </div></section>)}
     </main>
