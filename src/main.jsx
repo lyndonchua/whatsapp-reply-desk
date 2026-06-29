@@ -187,7 +187,6 @@ Category: ${catTitle[c.category] || c.category || ''}
         const data=await r.json();
         const text = data.reply||data.error||'No result.';
         results.push(selectedChats.length>1 ? `## ${c.sender}\n${text}` : text);
-        if(mode==='replies') setAi(a=>({...a,[c.id]:text}));
       }
       setPanelOutput(results.join('\n\n'));
     }catch(error){
@@ -242,8 +241,6 @@ Category: ${catTitle[c.category] || c.category || ''}
           <div className="top"><input type="checkbox" checked={selected.has(c.id)} onChange={e=>{const n=new Set(selected); e.target.checked?n.add(c.id):n.delete(c.id); setSelected(n)}}/><b>{c.sender}</b><span className={`pill ${c.priority?.toLowerCase()}`}>{c.priority}</span></div>
           <div className="row"><select value={c.category} onChange={e=>updateChat(c.id,{category:e.target.value})}>{cats.map(x=><option value={x} key={x}>{catTitle[x]}</option>)}</select><button onClick={()=>move(c.id,-1)}><ArrowUp size={14}/></button><button onClick={()=>move(c.id,1)}><ArrowDown size={14}/></button></div>
           <div className="msgs">{(c.messages||[]).map((m,i)=><div className="msg" key={i}><b>{m.time}</b><br/>{m.text}</div>)}</div>
-          {ai[c.id]&&<pre className="ai">{ai[c.id]}</pre>}
-          <div className="actions"><button onClick={()=>askAI(c)}><Bot size={16}/> AI replies</button>{ai[c.id]&&<button onClick={()=>navigator.clipboard.writeText(ai[c.id])}><Copy size={16}/> Copy</button>}<button className="danger" onClick={()=>del(c.id)}><Trash2 size={16}/> Delete chat</button></div>
         </article>)}
       </div></section>)}
     </main>
