@@ -15,3 +15,4 @@
 .toolBtn{margin:0;background:#eef6ff;color:#0967ff}
 .panelOutput{white-space:pre-wrap;font-family:inherit;font-size:12px;line-height:1.35;background:#07111f;color:#fff;border-radius:10px;padding:9px;max-height:220px;overflow-y:auto;margin:0}
 .copyPanel{margin:0;background:#101319;color:white}
+.selectedHint{font-size:12px;line-height:1.35;color:#536170;background:#fff;border:1px solid #dbe5f3;border-radius:9px;padding:8px}

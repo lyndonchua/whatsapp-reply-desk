@@ -83,7 +83,6 @@ function App(){
   const [ai,setAi] = useState({});
   const [saving,setSaving] = useState(false);
   const [pasteText,setPasteText] = useState('');
-  const [panelChatId,setPanelChatId] = useState('');
   const [panelOutput,setPanelOutput] = useState('');
   const [panelBusy,setPanelBusy] = useState('');
 
@@ -107,7 +106,8 @@ function App(){
   if(!unlocked) return <div className="lockPage"><form onSubmit={login} className="lockBox"><Lock size={36}/><h1>WhatsApp Reply Desk</h1><p>Password Required</p><input autoFocus type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Password"/><button>Unlock</button>{err&&<b>{err}</b>}</form></div>
 
   const filtered = chats.filter(c=>normalise(c.sender).includes(normalise(q)));
-  const panelChat = chats.find(c=>c.id===panelChatId) || filtered[0] || chats[0] || null;
+  const selectedChats = chats.filter(c=>selected.has(c.id));
+  const panelChat = selectedChats[0] || null;
   const byCat = Object.fromEntries(cats.map(cat=>[cat, filtered.filter(c=>c.category===cat)]));
   function updateChat(id, patch){ setChats(cs=>cs.map(c=>c.id===id?{...c,...patch}:c)); }
   function move(id, dir){ setChats(cs=>{ const i=cs.findIndex(c=>c.id===id); if(i<0) return cs; const j=i+dir; if(j<0||j>=cs.length) return cs; const a=[...cs]; [a[i],a[j]]=[a[j],a[i]]; return a; }); }
@@ -165,20 +165,42 @@ Category: ${catTitle[c.category] || c.category || ''}
     a.download = `${(c.sender || 'chat').replace(/[\\/:*?"<>|]+/g,'-').slice(0,80)}-chat.txt`;
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   }
+  function exportSelectedChats(){
+    if(selectedChats.length===0){ alert('Tick one sender or group first.'); return; }
+    if(selectedChats.length===1) return exportChat(selectedChats[0]);
+    const combined = selectedChats.map(chatPlainText).join('\n\n==============================\n\n');
+    const blob = new Blob([combined], {type:'text/plain;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `selected-whatsapp-chats.txt`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }
   async function askAI(c){ setAi(a=>({...a,[c.id]:'Generating...'})); const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}); const data=await r.json(); setAi(a=>({...a,[c.id]:data.reply||data.error||'No reply.'})); }
   async function askPanelAI(mode){
-    const c = panelChat;
-    if(!c){ alert('Select a sender or group first.'); return; }
+    if(selectedChats.length===0){ alert('Tick one sender or group first.'); return; }
     setPanelBusy(mode); setPanelOutput('Generating...');
     try{
-      const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...c, mode})});
-      const data=await r.json();
-      setPanelOutput(data.reply||data.error||'No result.');
+      const results = [];
+      for(const c of selectedChats){
+        const r=await fetch('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...c, mode})});
+        const data=await r.json();
+        const text = data.reply||data.error||'No result.';
+        results.push(selectedChats.length>1 ? `## ${c.sender}\n${text}` : text);
+        if(mode==='replies') setAi(a=>({...a,[c.id]:text}));
+      }
+      setPanelOutput(results.join('\n\n'));
     }catch(error){
       setPanelOutput(error?.message || 'AI request failed.');
     }finally{
       setPanelBusy('');
     }
+  }
+  async function deleteSelectedChats(){
+    if(selectedChats.length===0){ alert('Tick one sender or group first.'); return; }
+    if(!confirm(`Delete ${selectedChats.length} selected chat${selectedChats.length===1?'':'s'}?`)) return;
+    for(const c of selectedChats){ await del(c.id); }
+    setSelected(new Set());
   }
 
 
@@ -194,12 +216,12 @@ Category: ${catTitle[c.category] || c.category || ''}
       <button className="wide" onClick={combineSelected}><Merge size={18}/> Combine selected ({selected.size})</button>
       <div className="chatTools">
         <label>Sender / group tools</label>
-        <select value={panelChat?.id || ''} onChange={e=>setPanelChatId(e.target.value)}>
-          {filtered.map(c=><option value={c.id} key={c.id}>{c.sender}</option>)}
-        </select>
-        <button className="wide toolBtn" onClick={()=>exportChat(panelChat)}><Download size={18}/> Export selected chat</button>
-        <button className="wide toolBtn" onClick={()=>askPanelAI('summary')} disabled={!!panelBusy}><FileText size={18}/> {panelBusy==='summary'?'Summarising...':'AI summarise selected chat'}</button>
-        <button className="wide toolBtn" onClick={()=>askPanelAI('actions')} disabled={!!panelBusy}><ListChecks size={18}/> {panelBusy==='actions'?'Finding actions...':'AI action items selected chat'}</button>
+        <div className="selectedHint">Tick sender/group cards to use these tools. Selected: {selected.size}</div>
+        <button className="wide toolBtn" onClick={exportSelectedChats}><Download size={18}/> Export ticked chat</button>
+        <button className="wide toolBtn" onClick={()=>askPanelAI('summary')} disabled={!!panelBusy}><FileText size={18}/> {panelBusy==='summary'?'Summarising...':'AI summarise ticked chat'}</button>
+        <button className="wide toolBtn" onClick={()=>askPanelAI('actions')} disabled={!!panelBusy}><ListChecks size={18}/> {panelBusy==='actions'?'Finding actions...':'AI action items ticked chat'}</button>
+        <button className="wide toolBtn" onClick={()=>askPanelAI('replies')} disabled={!!panelBusy}><Bot size={18}/> {panelBusy==='replies'?'Generating replies...':'AI replies for ticked chat'}</button>
+        <button className="wide dangerWide" onClick={deleteSelectedChats} disabled={!!panelBusy}><Trash2 size={18}/> Delete ticked chat</button>
         {panelOutput&&<pre className="panelOutput">{panelOutput}</pre>}
         {panelOutput&&<button className="wide copyPanel" onClick={()=>navigator.clipboard.writeText(panelOutput)}><Copy size={18}/> Copy result</button>}
       </div>
